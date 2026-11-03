@@ -17,6 +17,8 @@ pub struct AppRecord {
     pub id: [u8; 16],
     pub alias: String,
     pub approved: bool,
+    /// Push port from this node's own app list. Contacts do not carry one.
+    pub push_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -207,16 +209,18 @@ fn read_apps(cur: &mut Cursor<'_>, with_host: bool) -> Result<Vec<AppRecord>, Pa
     for _ in 0..count {
         let id = cur.array()?;
         let alias = cur.str()?;
-        let approved = if with_host {
-            cur.skip(4 + 2)?;
-            cur.u8()? != 0
+        let (approved, push_port) = if with_host {
+            cur.skip(4)?;
+            let port = u16::from_be_bytes(cur.array()?);
+            (cur.u8()? != 0, Some(port))
         } else {
-            true
+            (true, None)
         };
         apps.push(AppRecord {
             id,
             alias,
             approved,
+            push_port,
         });
     }
     Ok(apps)
@@ -226,6 +230,7 @@ fn read_apps(cur: &mut Cursor<'_>, with_host: bool) -> Result<Vec<AppRecord>, Pa
 pub struct Peer {
     pub device: [u8; 16],
     pub app: [u8; 16],
+    pub push_port: Option<u16>,
 }
 
 /// Where one probe is aimed, and how the report should label it.
@@ -275,6 +280,7 @@ pub fn report_server(dir: &Directory) -> Option<Peer> {
     Some(Peer {
         device: holder.id,
         app: app.id,
+        push_port: app.push_port,
     })
 }
 
@@ -376,11 +382,11 @@ mod tests {
         push_str(buf, alias);
     }
 
-    fn push_own_app(buf: &mut Vec<u8>, id: [u8; 16], alias: &str, approved: bool) {
+    fn push_own_app(buf: &mut Vec<u8>, id: [u8; 16], alias: &str, port: u16, approved: bool) {
         buf.extend_from_slice(&id);
         push_str(buf, alias);
         buf.extend_from_slice(&[127, 0, 0, 1]);
-        buf.extend_from_slice(&8800u16.to_be_bytes());
+        buf.extend_from_slice(&port.to_be_bytes());
         buf.push(u8::from(approved));
     }
 
@@ -399,16 +405,16 @@ mod tests {
         buf.push(3);
         push_device(&mut buf, [0xA1; 16], "n64", 1, 1);
         buf.push(2);
-        push_own_app(&mut buf, [0x11; 16], SERVER_ALIAS, true);
-        push_own_app(&mut buf, [0x31; 16], CLIENT_ALIAS, true);
+        push_own_app(&mut buf, [0x11; 16], SERVER_ALIAS, 8801, true);
+        push_own_app(&mut buf, [0x31; 16], CLIENT_ALIAS, 8800, true);
 
         push_device(&mut buf, [0xA2; 16], "laptop", 0, 0);
         buf.push(1);
-        push_own_app(&mut buf, [0x32; 16], CLIENT_ALIAS, true);
+        push_own_app(&mut buf, [0x32; 16], CLIENT_ALIAS, 8800, true);
 
         push_device(&mut buf, [0xA3; 16], "spare", 1, 2);
         buf.push(1);
-        push_own_app(&mut buf, [0x12; 16], SERVER_ALIAS, true);
+        push_own_app(&mut buf, [0x12; 16], SERVER_ALIAS, 8801, true);
 
         buf.push(1);
         push_str(&mut buf, "chad");
@@ -437,6 +443,7 @@ mod tests {
         let server = report_server(&dir).unwrap();
         assert_eq!(server.device, [0xA1; 16]);
         assert_eq!(server.app, [0x11; 16]);
+        assert_eq!(server.push_port, Some(8801));
     }
 
     #[test]
