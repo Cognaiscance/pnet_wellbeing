@@ -143,6 +143,7 @@ fn measure(
 ) -> Sample {
     let ping_id = next_id(seq);
     let ping = proto::encode(&Message::Ping { id: ping_id });
+    let started = Instant::now();
     if let Err(err) = node.send(token, &target.device, &target.app, &ping) {
         eprintln!("[wellbeing-client] ping {}: {err}", target.device_alias);
         return Sample {
@@ -151,7 +152,6 @@ fn measure(
             bytes_per_sec: 0,
         };
     }
-    let started = Instant::now();
     let pong = wait_until(
         node,
         push,
@@ -187,26 +187,49 @@ fn measure(
             };
         }
     }
-    let ack = wait_until(
-        node,
-        push,
-        token,
-        dir,
-        xfers,
-        proto::XFER_WAIT,
-        |msg| matches!(msg, Message::XferAck { id, .. } if *id == xfer_id),
-    );
-    let bytes_per_sec = match ack {
-        Some(Message::XferAck { received, .. }) => {
-            proto::bytes_per_sec(received, xfer_started.elapsed())
-        }
-        _ => 0,
-    };
+    let received = wait_for_chunks(node, push, token, dir, xfers, xfer_id, xfer_started);
+    let bytes_per_sec = received
+        .map(|count| proto::bytes_per_sec(count, xfer_started.elapsed()))
+        .unwrap_or(0);
     Sample {
         online: true,
         delay_ms,
         bytes_per_sec,
     }
+}
+
+/// Keep the largest acknowledgement until every chunk is counted or the wait ends.
+/// Later chunks can arrive after the last index, so the first ack is not final.
+fn wait_for_chunks(
+    node: &NodeClient,
+    push: &std::net::UdpSocket,
+    token: &[u8; 16],
+    dir: &Directory,
+    xfers: &mut HashMap<([u8; 16], u64), Vec<u16>>,
+    xfer_id: u64,
+    started: Instant,
+) -> Option<u16> {
+    let deadline = started + proto::XFER_WAIT;
+    let mut best: Option<u16> = None;
+    while Instant::now() < deadline {
+        if best == Some(proto::XFER_CHUNKS) {
+            break;
+        }
+        let datagram = match node::recv_push(push) {
+            Ok(Some(datagram)) => datagram,
+            Ok(None) => continue,
+            Err(_) => continue,
+        };
+        let Some(message) = answer(node, token, dir, xfers, &datagram) else {
+            continue;
+        };
+        if let Message::XferAck { id, received } = message {
+            if id == xfer_id {
+                best = Some(best.unwrap_or(0).max(received));
+            }
+        }
+    }
+    best
 }
 
 fn wait_until(
@@ -258,11 +281,9 @@ fn answer(
             if !seen.contains(index) {
                 seen.push(*index);
             }
-            if index + 1 == *total || seen.len() as u16 == *total {
-                let ack = proto::encode(&Message::XferAck {
-                    id: *id,
-                    received: seen.len() as u16,
-                });
+            let received = seen.len() as u16;
+            if received == *total || index + 1 == *total {
+                let ack = proto::encode(&Message::XferAck { id: *id, received });
                 let _ = node.send(token, &device, &sender, &ack);
             }
         }

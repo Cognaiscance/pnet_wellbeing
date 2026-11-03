@@ -158,8 +158,12 @@ impl NodeClient {
         buf.extend_from_slice(dest_app);
         buf.extend_from_slice(payload);
         self.socket.send(&buf).map_err(NodeError::Io)?;
+        // A local rejection comes back at once. Waiting out the normal timeout
+        // hides the round trip, because the peer's reply arrives on the push
+        // socket during that wait. A miss here is treated as acceptance.
+        self.socket.set_nonblocking(true).map_err(NodeError::Io)?;
         let mut reply = [0u8; 64];
-        match self.socket.recv(&mut reply) {
+        let result = match self.socket.recv(&mut reply) {
             Ok(0) => Err(NodeError::Unexpected),
             Ok(n) if reply[0] == 0x01 => Err(NodeError::Rejected {
                 code: reply.get(1).filter(|_| n >= 2).copied(),
@@ -172,7 +176,12 @@ impl NodeClient {
                 Ok(())
             }
             Err(err) => Err(NodeError::Io(err)),
-        }
+        };
+        self.socket.set_nonblocking(false).map_err(NodeError::Io)?;
+        self.socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(NodeError::Io)?;
+        result
     }
 
     fn round_trip(&self, packet: &[u8]) -> Result<Vec<u8>, NodeError> {
