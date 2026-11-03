@@ -1,0 +1,11 @@
+{
+  "id": "wellbeing",
+  "name": "Wellbeing",
+  "summary": "Clients measure reachability. The top-ranked server shows the report at /apps/wellbeing/.",
+  "placement": "wellbeing-client on every device. wellbeing-server on server-grade nodes; only the top-ranked one stores results.",
+  "os": "Linux (v1)",
+  "fabric_alias_client": "wellbeing-client",
+  "fabric_alias_server": "wellbeing-server",
+  "web_slug": "wellbeing",
+  "protocol": "application/wellbeing"
+}

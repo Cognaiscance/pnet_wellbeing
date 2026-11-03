@@ -1,0 +1,19 @@
+[package]
+name = "pnet_wellbeing"
+version = "0.1.0"
+edition = "2021"
+description = "Device reachability checks over pNet. Clients measure; the top server stores the report."
+
+[dependencies]
+
+[lib]
+name = "pnet_wellbeing"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wellbeing-client"
+path = "src/bin/wellbeing-client.rs"
+
+[[bin]]
+name = "wellbeing-server"
+path = "src/bin/wellbeing-server.rs"
