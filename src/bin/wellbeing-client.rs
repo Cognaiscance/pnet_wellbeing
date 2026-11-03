@@ -102,7 +102,13 @@ fn run_round(
             bytes_per_sec: sample.bytes_per_sec,
             at_ms: unix_ms(),
         });
-        match node.send(token, &server.device, &server.app, &payload) {
+        let sent = if server.device == dir.local_device {
+            deliver_local(&dir.local_app_id, server.push_port, &payload)
+        } else {
+            node.send(token, &server.device, &server.app, &payload)
+                .map_err(|err| err.to_string())
+        };
+        match sent {
             Ok(()) => println!(
                 "[wellbeing-client] {} {}: delay {} ms, {} B/s",
                 target.device_alias,
@@ -263,6 +269,21 @@ fn answer(
         _ => {}
     }
     Some(message)
+}
+
+/// The node has no route from an app to another app on the same device.
+/// Hand the report to the local server push port in the same shape the node uses.
+fn deliver_local(sender_app: &[u8; 16], port: Option<u16>, payload: &[u8]) -> Result<(), String> {
+    let port = port.ok_or_else(|| "local server has no push port".to_string())?;
+    let mut datagram = Vec::with_capacity(17 + payload.len());
+    datagram.push(0x04);
+    datagram.extend_from_slice(sender_app);
+    datagram.extend_from_slice(payload);
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").map_err(|err| err.to_string())?;
+    socket
+        .send_to(&datagram, ("127.0.0.1", port))
+        .map_err(|err| err.to_string())?;
+    Ok(())
 }
 
 fn fetch(node: &NodeClient, token: &[u8; 16]) -> Result<Directory, String> {
