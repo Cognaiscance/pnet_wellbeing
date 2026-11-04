@@ -24,43 +24,56 @@ pub fn render(rows: &[Report]) -> String {
         "</style></head><body>\n\
          <button class=\"theme-toggle\" type=\"button\">Light</button>\n\
          <main>\n<h1>Wellbeing</h1>\n\
-         <p class=\"lead\">Each wellbeing client, and the connections it checked. \
-         Delay is the round trip. Rate is the sample that came back.</p>\n",
+         <p class=\"lead\">Each person, then the device that checked them. \
+         Delay is the round trip. Rate is the sample that came back. \
+         Times use this browser’s time zone.</p>\n",
     );
     if rows.is_empty() {
         body.push_str("<p class=\"empty\">No checks stored yet.</p>\n");
     } else {
-        let mut seen: Vec<[u8; 16]> = Vec::new();
-        for row in rows {
-            if !seen.contains(&row.from_id) {
-                seen.push(row.from_id);
+        for who in people(rows) {
+            body.push_str("<section class=\"person\"><h2>");
+            body.push_str(&esc(&person_label(who)));
+            body.push_str("</h2>\n");
+            let mut seen: Vec<[u8; 16]> = Vec::new();
+            for row in rows.iter().filter(|row| row.who == who) {
+                if !seen.contains(&row.from_id) {
+                    seen.push(row.from_id);
+                }
             }
-        }
-        for from_id in seen {
-            let first = rows.iter().find(|row| row.from_id == from_id).unwrap();
-            body.push_str("<section class=\"card\"><h2>wellbeing-client on ");
-            body.push_str(&esc(&label(&first.from_alias, &from_id)));
-            body.push_str(
-                "</h2><table><thead><tr><th>To</th><th>Whose</th><th>Status</th>\
-                 <th>Delay</th><th>Rate</th><th>When</th></tr></thead><tbody>\n",
-            );
-            for row in rows.iter().filter(|row| row.from_id == from_id) {
-                let status = if row.online {
-                    "<span class=\"on\">online</span>"
-                } else {
-                    "<span class=\"off\">not online</span>"
-                };
-                body.push_str(&format!(
-                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{} ms</td><td>{}</td><td>{}</td></tr>\n",
-                    esc(&label(&row.to_alias, &row.to_id)),
-                    esc(&row.who),
-                    status,
-                    row.delay_ms,
-                    rate_label(row.bytes_per_sec),
-                    esc(&format_time(row.at_ms)),
-                ));
+            for from_id in seen {
+                let first = rows
+                    .iter()
+                    .find(|row| row.who == who && row.from_id == from_id)
+                    .unwrap();
+                body.push_str("<section class=\"card\"><h3>");
+                body.push_str(&esc(&label(&first.from_alias, &from_id)));
+                body.push_str(
+                    "</h3><table><thead><tr><th>To</th><th>Status</th>\
+                     <th>Delay</th><th>Rate</th><th>When</th></tr></thead><tbody>\n",
+                );
+                for row in rows
+                    .iter()
+                    .filter(|row| row.who == who && row.from_id == from_id)
+                {
+                    let status = if row.online {
+                        "<span class=\"on\">online</span>"
+                    } else {
+                        "<span class=\"off\">not online</span>"
+                    };
+                    body.push_str(&format!(
+                        "<tr><td>{}</td><td>{}</td><td>{} ms</td><td>{}</td><td><time data-ms=\"{}\">{}</time></td></tr>\n",
+                        esc(&label(&row.to_alias, &row.to_id)),
+                        status,
+                        row.delay_ms,
+                        rate_label(row.bytes_per_sec),
+                        row.at_ms,
+                        esc(&format_time(row.at_ms)),
+                    ));
+                }
+                body.push_str("</tbody></table></section>\n");
             }
-            body.push_str("</tbody></table></section>\n");
+            body.push_str("</section>\n");
         }
     }
     body.push_str(
@@ -90,6 +103,18 @@ pub fn render(rows: &[Report]) -> String {
            });\
            window.addEventListener(\"storage\", function (ev) {\
              if (ev.key === key && (ev.newValue === \"light\" || ev.newValue === \"dark\")) paint(ev.newValue);\
+           });\
+         })();\
+         (function () {\
+           var fmt = new Intl.DateTimeFormat(undefined, {\
+             year: \"numeric\", month: \"2-digit\", day: \"2-digit\",\
+             hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\",\
+             hourCycle: \"h23\", timeZoneName: \"short\"\
+           });\
+           document.querySelectorAll(\"time[data-ms]\").forEach(function (el) {\
+             var ms = Number(el.getAttribute(\"data-ms\"));\
+             if (!Number.isFinite(ms)) return;\
+             el.textContent = fmt.format(new Date(ms));\
            });\
          })();\
          </script>\n</body></html>\n",
@@ -124,9 +149,11 @@ body {
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   line-height: 1.5;
 }
-h1, h2 { font-family: Georgia, "Iowan Old Style", Palatino, serif; font-weight: 600; }
+h1, h2, h3 { font-family: Georgia, "Iowan Old Style", Palatino, serif; font-weight: 600; }
 h1 { margin: 0 0 0.4rem; font-size: 1.9rem; }
-h2 { margin: 0 0 0.8rem; font-size: 1.15rem; }
+.person { margin: 1.6rem 0 0.2rem; }
+.person > h2 { margin: 0; font-size: 1.45rem; }
+h3 { margin: 0 0 0.8rem; font-size: 1.15rem; }
 a { color: var(--link); }
 a:hover { color: var(--gold-hover); }
 main { max-width: 56rem; margin: 0 auto; padding: 2rem 1.2rem 3rem; }
@@ -147,6 +174,30 @@ button.theme-toggle {
 }
 button.theme-toggle:hover { color: var(--gold); border-color: var(--gold); }
 "#;
+
+/// `you` first, then other contacts in the order they appear.
+fn people(rows: &[Report]) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    if rows.iter().any(|row| row.who == "you") {
+        out.push("you");
+    }
+    for row in rows {
+        if row.who != "you" && !out.contains(&row.who.as_str()) {
+            out.push(&row.who);
+        }
+    }
+    out
+}
+
+fn person_label(who: &str) -> String {
+    if who == "you" {
+        "You".to_string()
+    } else if who.is_empty() {
+        "Unknown".to_string()
+    } else {
+        who.to_string()
+    }
+}
 
 fn label(alias: &str, id: &[u8; 16]) -> String {
     if alias.is_empty() {
@@ -231,10 +282,15 @@ mod tests {
             at_ms: 1_700_000_000_000,
         }];
         let html = render(&rows);
-        assert!(html.contains("wellbeing-client on laptop"));
+        assert!(html.contains("<h3>laptop</h3>"));
+        assert!(!html.contains("wellbeing-client on"));
+        assert!(!html.contains("<th>Whose</th>"));
+        assert!(html.contains("<h2>chad</h2>"));
         assert!(html.contains("online"));
         assert!(html.contains("18 ms"));
-        assert!(html.contains("chad"));
+        assert!(html.contains("data-ms=\"1700000000000\""));
+        assert!(html.contains("time[data-ms]"));
+        assert!(html.contains("timeZoneName"));
         assert!(html.contains("pnet-theme"));
         assert!(html.contains("data-theme=\"dark\""));
         assert!(render(&[]).contains("No checks stored yet"));
@@ -268,9 +324,45 @@ mod tests {
             },
         ];
         let html = render(&rows);
-        let laptop = html.find("wellbeing-client on laptop").unwrap();
-        let pi = html.find("wellbeing-client on pi").unwrap();
+        let laptop = html.find("<h3>laptop</h3>").unwrap();
+        let pi = html.find("<h3>pi</h3>").unwrap();
+        assert!(html.find("<h2>You</h2>").unwrap() < laptop);
         assert!(laptop < pi);
-        assert_eq!(html.matches("wellbeing-client on").count(), 2);
+        assert_eq!(html.matches("<h2>You</h2>").count(), 1);
+    }
+
+    #[test]
+    fn page_puts_you_before_other_people() {
+        let rows = vec![
+            Report {
+                from_id: [3; 16],
+                from_alias: "n64".into(),
+                to_id: [4; 16],
+                to_alias: "x1".into(),
+                who: "chad".into(),
+                online: true,
+                delay_ms: 40,
+                bytes_per_sec: 800,
+                at_ms: 1_700_000_000_000,
+            },
+            Report {
+                from_id: [1; 16],
+                from_alias: "n64".into(),
+                to_id: [2; 16],
+                to_alias: "sanosuke".into(),
+                who: "you".into(),
+                online: true,
+                delay_ms: 7,
+                bytes_per_sec: 1000,
+                at_ms: 1_700_000_000_000,
+            },
+        ];
+        let html = render(&rows);
+        let you = html.find("<h2>You</h2>").unwrap();
+        let chad = html.find("<h2>chad</h2>").unwrap();
+        assert!(you < chad);
+        assert!(html[you..chad].contains("<h3>n64</h3>"));
+        assert!(html[chad..].contains("<h3>n64</h3>"));
+        assert!(!html.contains("Whose"));
     }
 }
