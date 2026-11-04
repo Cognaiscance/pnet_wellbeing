@@ -2,7 +2,7 @@
 
 use crate::store::Report;
 
-pub fn render(rows: &[Report]) -> String {
+pub fn render(rows: &[Report], owner_alias: &str) -> String {
     let mut body = String::from(
         "<!DOCTYPE html>\n<html lang=\"en\" data-theme=\"dark\"><head><meta charset=\"utf-8\">\
          <meta name=\"theme-color\" content=\"#070605\"><title>Wellbeing</title>\n\
@@ -33,7 +33,7 @@ pub fn render(rows: &[Report]) -> String {
     } else {
         for who in people(rows) {
             body.push_str("<section class=\"person\"><h2>");
-            body.push_str(&esc(&person_label(who)));
+            body.push_str(&esc(&person_label(who, owner_alias)));
             body.push_str("</h2>\n");
             let mut seen: Vec<[u8; 16]> = Vec::new();
             for row in rows.iter().filter(|row| row.who == who) {
@@ -189,9 +189,13 @@ fn people(rows: &[Report]) -> Vec<&str> {
     out
 }
 
-fn person_label(who: &str) -> String {
+fn person_label(who: &str, owner_alias: &str) -> String {
     if who == "you" {
-        "You".to_string()
+        if owner_alias.is_empty() {
+            "you".to_string()
+        } else {
+            owner_alias.to_string()
+        }
     } else if who.is_empty() {
         "Unknown".to_string()
     } else {
@@ -281,7 +285,7 @@ mod tests {
             bytes_per_sec: 4096,
             at_ms: 1_700_000_000_000,
         }];
-        let html = render(&rows);
+        let html = render(&rows, "william");
         assert!(html.contains("<h3>laptop</h3>"));
         assert!(!html.contains("wellbeing-client on"));
         assert!(!html.contains("<th>Whose</th>"));
@@ -293,7 +297,7 @@ mod tests {
         assert!(html.contains("timeZoneName"));
         assert!(html.contains("pnet-theme"));
         assert!(html.contains("data-theme=\"dark\""));
-        assert!(render(&[]).contains("No checks stored yet"));
+        assert!(render(&[], "william").contains("No checks stored yet"));
         assert_eq!(format_time(0), "1970-01-01 00:00:00 UTC");
     }
 
@@ -323,12 +327,12 @@ mod tests {
                 at_ms: 1_700_000_000_000,
             },
         ];
-        let html = render(&rows);
+        let html = render(&rows, "william");
         let laptop = html.find("<h3>laptop</h3>").unwrap();
         let pi = html.find("<h3>pi</h3>").unwrap();
-        assert!(html.find("<h2>You</h2>").unwrap() < laptop);
+        assert!(html.find("<h2>william</h2>").unwrap() < laptop);
         assert!(laptop < pi);
-        assert_eq!(html.matches("<h2>You</h2>").count(), 1);
+        assert_eq!(html.matches("<h2>william</h2>").count(), 1);
     }
 
     #[test]
@@ -357,8 +361,8 @@ mod tests {
                 at_ms: 1_700_000_000_000,
             },
         ];
-        let html = render(&rows);
-        let you = html.find("<h2>You</h2>").unwrap();
+        let html = render(&rows, "william");
+        let you = html.find("<h2>william</h2>").unwrap();
         let chad = html.find("<h2>chad</h2>").unwrap();
         assert!(you < chad);
         assert!(html[you..chad].contains("<h3>n64</h3>"));

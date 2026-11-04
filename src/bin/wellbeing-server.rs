@@ -55,7 +55,7 @@ fn main() {
         match fetch(&node, &token) {
             Ok(dir) if directory::holds_report(&dir) => {
                 println!("[wellbeing-server] this is the top-ranked SG; storing reports");
-                serve(&node, &push, &token, http_port, &portal);
+                serve(&node, &push, &token, http_port, &portal, &dir.owner_alias);
                 println!("[wellbeing-server] standing by; a higher-ranked SG holds the report");
             }
             Ok(dir) => {
@@ -76,6 +76,7 @@ fn serve(
     token: &[u8; 16],
     http_port: u16,
     portal: &str,
+    owner_alias: &str,
 ) {
     let path = store::results_path(&node::data_dir());
     let store = match Store::open(path) {
@@ -94,9 +95,11 @@ fn serve(
         }
     };
     listener.set_nonblocking(true).ok();
+    let owner = Arc::new(Mutex::new(owner_alias.to_string()));
     let page_store = Arc::clone(&store);
+    let page_owner = Arc::clone(&owner);
     let page_stop = Arc::clone(&stop);
-    thread::spawn(move || http_loop(listener, page_store, page_stop));
+    thread::spawn(move || http_loop(listener, page_store, page_owner, page_stop));
 
     let mut mounted = false;
     for attempt in 1..=5 {
@@ -119,13 +122,15 @@ fn serve(
             next_check = Instant::now() + Duration::from_secs(15);
             match fetch(node, token) {
                 Ok(dir) if !directory::holds_report(&dir) => break,
-                Ok(_) => {}
+                Ok(dir) => {
+                    *owner.lock().unwrap_or_else(|err| err.into_inner()) = dir.owner_alias;
+                }
                 Err(err) => eprintln!("[wellbeing-server] directory: {err}"),
             }
         }
         match node::recv_push(push) {
             Ok(Some(datagram)) => {
-                if let Err(err) = accept_report(node, token, &store, &datagram) {
+                if let Err(err) = accept_report(node, token, &store, &owner, &datagram) {
                     eprintln!("[wellbeing-server] {err}");
                 }
             }
@@ -146,6 +151,7 @@ fn accept_report(
     node: &NodeClient,
     token: &[u8; 16],
     store: &Mutex<Store>,
+    owner: &Mutex<String>,
     datagram: &[u8],
 ) -> Result<(), String> {
     let Some((sender, payload)) = node::decode_push(datagram) else {
@@ -162,6 +168,7 @@ fn accept_report(
         return Ok(());
     };
     let dir = fetch(node, token)?;
+    *owner.lock().unwrap_or_else(|err| err.into_inner()) = dir.owner_alias.clone();
     if !directory::approved_own_client(&dir, &sender) {
         return Ok(());
     }
@@ -192,13 +199,19 @@ fn accept_report(
         .map_err(|err| err.to_string())
 }
 
-fn http_loop(listener: TcpListener, store: Arc<Mutex<Store>>, stop: Arc<AtomicBool>) {
+fn http_loop(
+    listener: TcpListener,
+    store: Arc<Mutex<Store>>,
+    owner: Arc<Mutex<String>>,
+    stop: Arc<AtomicBool>,
+) {
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, _)) => {
                 let store = Arc::clone(&store);
+                let owner = Arc::clone(&owner);
                 thread::spawn(move || {
-                    if let Err(err) = serve_http(stream, &store) {
+                    if let Err(err) = serve_http(stream, &store, &owner) {
                         eprintln!("[wellbeing-server] http: {err}");
                     }
                 });
@@ -214,7 +227,11 @@ fn http_loop(listener: TcpListener, store: Arc<Mutex<Store>>, stop: Arc<AtomicBo
     }
 }
 
-fn serve_http(mut stream: TcpStream, store: &Mutex<Store>) -> Result<(), String> {
+fn serve_http(
+    mut stream: TcpStream,
+    store: &Mutex<Store>,
+    owner: &Mutex<String>,
+) -> Result<(), String> {
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     let mut buf = [0u8; 2048];
     let n = stream.read(&mut buf).map_err(|err| err.to_string())?;
@@ -232,8 +249,9 @@ fn serve_http(mut stream: TcpStream, store: &Mutex<Store>) -> Result<(), String>
         .unwrap_or_else(|err| err.into_inner())
         .rows()
         .to_vec();
+    let owner_alias = owner.lock().unwrap_or_else(|err| err.into_inner()).clone();
     stream
-        .write_all(&http_response(&page::render(&rows)))
+        .write_all(&http_response(&page::render(&rows, &owner_alias)))
         .map_err(|err| err.to_string())
 }
 
