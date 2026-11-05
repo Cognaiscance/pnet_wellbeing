@@ -76,7 +76,7 @@ pub fn render(rows: &[Report], owner_alias: &str) -> String {
         }
     }
     body.push_str(
-        "<p><a href=\"/\">Portal home</a></p>\n</main>\n<script>\
+        "</main>\n<script>\
          (function () {\
            var key = \"pnet-theme\";\
            function paint(theme) {\
@@ -113,7 +113,7 @@ const PAGE_CSS: &str = r#"
   --gold-ink: #1a1408; --line: rgba(244, 239, 230, 0.12);
   --card-line: rgba(212, 177, 90, 0.32); --line-strong: rgba(212, 177, 90, 0.45);
   --shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
-  --ok: #8fbf73; --bad: #e07a6a; --link: #e4c97a;
+  --ok: #8fbf73; --bad: #e07a6a;
 }
 html[data-theme="light"] {
   color-scheme: light;
@@ -122,7 +122,7 @@ html[data-theme="light"] {
   --gold-ink: #fffdf8; --line: rgba(36, 28, 20, 0.1);
   --card-line: rgba(141, 104, 24, 0.28); --line-strong: rgba(141, 104, 24, 0.38);
   --shadow: 0 12px 32px rgba(70, 48, 16, 0.08);
-  --ok: #1b6b34; --bad: #a3261c; --link: #8a6412;
+  --ok: #1b6b34; --bad: #a3261c;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
@@ -137,8 +137,6 @@ h1 { margin: 0 0 0.4rem; font-size: 1.9rem; }
 .person { margin: 1.6rem 0 0.2rem; }
 .person > h2 { margin: 0; font-size: 1.45rem; }
 h3 { margin: 0 0 0.8rem; font-size: 1.15rem; }
-a { color: var(--link); }
-a:hover { color: var(--gold-hover); }
 main { max-width: 56rem; margin: 0 auto; padding: 2rem 1.2rem 3rem; }
 .lead, .empty { color: var(--muted); }
 .card {
@@ -275,6 +273,7 @@ mod tests {
         assert!(html.contains("pnet-theme"));
         assert!(html.contains("data-theme=\"dark\""));
         assert!(!html.contains("theme-toggle"));
+        assert!(!html.contains("Portal home"));
         assert!(render(&[], "william").contains("No checks stored yet"));
         assert_eq!(format_time(0), "1970-01-01 00:00:00 UTC");
     }
