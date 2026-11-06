@@ -5,6 +5,8 @@ edition = "2021"
 description = "Device reachability checks over pNet. Clients measure; the top server stores the report."
 
 [dependencies]
+log = "0.4"
+flexi_logger = "0.31"
 
 [lib]
 name = "pnet_wellbeing"

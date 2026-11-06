@@ -15,9 +15,10 @@ use pnet_wellbeing::store::{self, Report, Store};
 use pnet_wellbeing::{DEFAULT_HTTP_PORT, DEFAULT_SERVER_PUSH, SERVER_ALIAS, WEB_SLUG, WEB_TITLE};
 
 fn main() {
+    pnet_wellbeing::log_setup::init("wellbeing-server");
     let addr = env_or("PNET_ADDR", "127.0.0.1:7777");
     let addr: SocketAddr = addr.parse().unwrap_or_else(|_| {
-        eprintln!("[wellbeing-server] PNET_ADDR is not host:port");
+        log::error!("[wellbeing-server] PNET_ADDR is not host:port");
         std::process::exit(1);
     });
     let push_port = env_or("WELLBEING_PUSH_PORT", &DEFAULT_SERVER_PUSH.to_string())
@@ -29,24 +30,24 @@ fn main() {
     let portal = env_or("PNET_PORTAL", "http://127.0.0.1:8777");
 
     let push = node::bind_push(push_port).unwrap_or_else(|err| {
-        eprintln!("[wellbeing-server] bind 127.0.0.1:{push_port}: {err}");
+        log::error!("[wellbeing-server] bind 127.0.0.1:{push_port}: {err}");
         std::process::exit(1);
     });
     let node = NodeClient::connect(addr).unwrap_or_else(|err| {
-        eprintln!("[wellbeing-server] local node {addr}: {err}");
+        log::error!("[wellbeing-server] local node {addr}: {err}");
         std::process::exit(1);
     });
     let token_path = node::token_path("wellbeing-server");
     let token = match node.register(SERVER_ALIAS, push_port) {
         Ok(token) => {
             if let Err(err) = node::save_token(&token_path, &token) {
-                eprintln!("[wellbeing-server] token file: {err}");
+                log::error!("[wellbeing-server] token file: {err}");
             }
-            println!("[wellbeing-server] registered as {SERVER_ALIAS}");
+            log::info!("[wellbeing-server] registered as {SERVER_ALIAS}");
             token
         }
         Err(err) => {
-            eprintln!("[wellbeing-server] register failed: {err}");
+            log::error!("[wellbeing-server] register failed: {err}");
             std::process::exit(1);
         }
     };
@@ -54,17 +55,17 @@ fn main() {
     loop {
         match fetch(&node, &token) {
             Ok(dir) if directory::holds_report(&dir) => {
-                println!("[wellbeing-server] this is the top-ranked SG; storing reports");
+                log::info!("[wellbeing-server] this is the top-ranked SG; storing reports");
                 serve(&node, &push, &token, http_port, &portal, &dir.owner_alias);
-                println!("[wellbeing-server] standing by; a higher-ranked SG holds the report");
+                log::info!("[wellbeing-server] standing by; a higher-ranked SG holds the report");
             }
             Ok(dir) => {
                 let holder = directory::report_holder(&dir)
                     .map(|device| device.alias.as_str())
                     .unwrap_or("none");
-                println!("[wellbeing-server] standing by; report holder is {holder}");
+                log::info!("[wellbeing-server] standing by; report holder is {holder}");
             }
-            Err(err) => eprintln!("[wellbeing-server] directory: {err}"),
+            Err(err) => log::error!("[wellbeing-server] directory: {err}"),
         }
         thread::sleep(Duration::from_secs(15));
     }
@@ -82,7 +83,7 @@ fn serve(
     let store = match Store::open(path) {
         Ok(store) => Arc::new(Mutex::new(store)),
         Err(err) => {
-            eprintln!("[wellbeing-server] results file: {err}");
+            log::error!("[wellbeing-server] results file: {err}");
             return;
         }
     };
@@ -90,7 +91,7 @@ fn serve(
     let listener = match TcpListener::bind(("127.0.0.1", http_port)) {
         Ok(listener) => listener,
         Err(err) => {
-            eprintln!("[wellbeing-server] http 127.0.0.1:{http_port}: {err}");
+            log::error!("[wellbeing-server] http 127.0.0.1:{http_port}: {err}");
             return;
         }
     };
@@ -105,12 +106,12 @@ fn serve(
     for attempt in 1..=5 {
         match portal_register(portal, http_port) {
             Ok(()) => {
-                println!("[wellbeing-server] portal /apps/{WEB_SLUG}/ → 127.0.0.1:{http_port}");
+                log::info!("[wellbeing-server] portal /apps/{WEB_SLUG}/ → 127.0.0.1:{http_port}");
                 mounted = true;
                 break;
             }
             Err(err) => {
-                eprintln!("[wellbeing-server] portal register attempt {attempt}: {err}");
+                log::error!("[wellbeing-server] portal register attempt {attempt}: {err}");
                 thread::sleep(Duration::from_millis(400));
             }
         }
@@ -125,24 +126,24 @@ fn serve(
                 Ok(dir) => {
                     *owner.lock().unwrap_or_else(|err| err.into_inner()) = dir.owner_alias;
                 }
-                Err(err) => eprintln!("[wellbeing-server] directory: {err}"),
+                Err(err) => log::error!("[wellbeing-server] directory: {err}"),
             }
         }
         match node::recv_push(push) {
             Ok(Some(datagram)) => {
                 if let Err(err) = accept_report(node, token, &store, &owner, &datagram) {
-                    eprintln!("[wellbeing-server] {err}");
+                    log::error!("[wellbeing-server] {err}");
                 }
             }
             Ok(None) => {}
-            Err(err) => eprintln!("[wellbeing-server] push: {err}"),
+            Err(err) => log::error!("[wellbeing-server] push: {err}"),
         }
     }
 
     stop.store(true, Ordering::SeqCst);
     if mounted {
         if let Err(err) = portal_unregister(portal) {
-            eprintln!("[wellbeing-server] portal unregister: {err}");
+            log::error!("[wellbeing-server] portal unregister: {err}");
         }
     }
 }
@@ -212,7 +213,7 @@ fn http_loop(
                 let owner = Arc::clone(&owner);
                 thread::spawn(move || {
                     if let Err(err) = serve_http(stream, &store, &owner) {
-                        eprintln!("[wellbeing-server] http: {err}");
+                        log::error!("[wellbeing-server] http: {err}");
                     }
                 });
             }
@@ -220,7 +221,7 @@ fn http_loop(
                 thread::sleep(Duration::from_millis(50));
             }
             Err(err) => {
-                eprintln!("[wellbeing-server] accept: {err}");
+                log::error!("[wellbeing-server] accept: {err}");
                 thread::sleep(Duration::from_millis(100));
             }
         }

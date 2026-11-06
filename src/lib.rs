@@ -3,6 +3,7 @@
 //! `wellbeing-client` runs on every device. `wellbeing-server` stores reports
 //! only on the top-ranked server-grade node and mounts `/apps/wellbeing/`.
 
+pub mod log_setup;
 pub mod directory;
 pub mod node;
 pub mod page;

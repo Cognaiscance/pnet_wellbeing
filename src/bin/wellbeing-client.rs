@@ -10,9 +10,10 @@ use pnet_wellbeing::proto::{self, Message, XFER_CHUNKS};
 use pnet_wellbeing::{CLIENT_ALIAS, DEFAULT_CLIENT_PUSH};
 
 fn main() {
+    pnet_wellbeing::log_setup::init("wellbeing-client");
     let addr = env_or("PNET_ADDR", "127.0.0.1:7777");
     let addr: SocketAddr = addr.parse().unwrap_or_else(|_| {
-        eprintln!("[wellbeing-client] PNET_ADDR is not host:port");
+        log::error!("[wellbeing-client] PNET_ADDR is not host:port");
         std::process::exit(1);
     });
     let push_port = env_or("WELLBEING_PUSH_PORT", &DEFAULT_CLIENT_PUSH.to_string())
@@ -26,24 +27,24 @@ fn main() {
     );
 
     let push = node::bind_push(push_port).unwrap_or_else(|err| {
-        eprintln!("[wellbeing-client] bind 127.0.0.1:{push_port}: {err}");
+        log::error!("[wellbeing-client] bind 127.0.0.1:{push_port}: {err}");
         std::process::exit(1);
     });
     let node = NodeClient::connect(addr).unwrap_or_else(|err| {
-        eprintln!("[wellbeing-client] local node {addr}: {err}");
+        log::error!("[wellbeing-client] local node {addr}: {err}");
         std::process::exit(1);
     });
     let token_path = node::token_path("wellbeing-client");
     let token = match node.register(CLIENT_ALIAS, push_port) {
         Ok(token) => {
             if let Err(err) = node::save_token(&token_path, &token) {
-                eprintln!("[wellbeing-client] token file: {err}");
+                log::error!("[wellbeing-client] token file: {err}");
             }
-            println!("[wellbeing-client] registered as {CLIENT_ALIAS}");
+            log::info!("[wellbeing-client] registered as {CLIENT_ALIAS}");
             token
         }
         Err(err) => {
-            eprintln!("[wellbeing-client] register failed: {err}");
+            log::error!("[wellbeing-client] register failed: {err}");
             std::process::exit(1);
         }
     };
@@ -51,13 +52,13 @@ fn main() {
     let mut xfers: HashMap<([u8; 16], u64), Vec<u16>> = HashMap::new();
     let mut next = Instant::now();
     let mut seq = 1u64;
-    println!("[wellbeing-client] checking every {}s", interval.as_secs());
+    log::info!("[wellbeing-client] checking every {}s", interval.as_secs());
 
     loop {
         if Instant::now() >= next {
             next = Instant::now() + interval;
             if let Err(err) = run_round(&node, &push, &token, &mut xfers, &mut seq) {
-                eprintln!("[wellbeing-client] {err}");
+                log::error!("[wellbeing-client] {err}");
             }
         }
         match node::recv_push(&push) {
@@ -67,7 +68,7 @@ fn main() {
                 }
             }
             Ok(None) => {}
-            Err(err) => eprintln!("[wellbeing-client] push: {err}"),
+            Err(err) => log::error!("[wellbeing-client] push: {err}"),
         }
     }
 }
@@ -81,16 +82,16 @@ fn run_round(
 ) -> Result<(), String> {
     let dir = fetch(node, token)?;
     if !dir.local_app_approved {
-        println!("[wellbeing-client] waiting for approval");
+        log::info!("[wellbeing-client] waiting for approval");
         return Ok(());
     }
     let Some(server) = directory::report_server(&dir) else {
-        println!("[wellbeing-client] no approved server on the top-ranked SG yet");
+        log::info!("[wellbeing-client] no approved server on the top-ranked SG yet");
         return Ok(());
     };
     let targets = directory::probe_targets(&dir);
     if targets.is_empty() {
-        println!("[wellbeing-client] no other clients to check");
+        log::info!("[wellbeing-client] no other clients to check");
         return Ok(());
     }
     for target in targets {
@@ -109,7 +110,7 @@ fn run_round(
                 .map_err(|err| err.to_string())
         };
         match sent {
-            Ok(()) => println!(
+            Ok(()) => log::info!(
                 "[wellbeing-client] {} {}: delay {} ms, {} B/s",
                 target.device_alias,
                 if sample.online {
@@ -120,7 +121,7 @@ fn run_round(
                 sample.delay_ms,
                 sample.bytes_per_sec
             ),
-            Err(err) => eprintln!("[wellbeing-client] report to server: {err}"),
+            Err(err) => log::error!("[wellbeing-client] report to server: {err}"),
         }
     }
     Ok(())
@@ -144,7 +145,7 @@ fn measure(
     let ping_id = next_id(seq);
     let ping = proto::encode(&Message::Ping { id: ping_id });
     if let Err(err) = node.send(token, &target.device, &target.app, &ping) {
-        eprintln!("[wellbeing-client] ping {}: {err}", target.device_alias);
+        log::error!("[wellbeing-client] ping {}: {err}", target.device_alias);
         return Sample {
             online: false,
             delay_ms: 0,
@@ -179,7 +180,7 @@ fn measure(
             total: XFER_CHUNKS,
         });
         if let Err(err) = node.send(token, &target.device, &target.app, &chunk) {
-            eprintln!("[wellbeing-client] transfer {}: {err}", target.device_alias);
+            log::error!("[wellbeing-client] transfer {}: {err}", target.device_alias);
             return Sample {
                 online: true,
                 delay_ms,
