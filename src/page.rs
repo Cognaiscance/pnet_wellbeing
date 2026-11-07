@@ -23,7 +23,7 @@ pub fn render(rows: &[Report], owner_alias: &str) -> String {
     body.push_str(
         "</style></head><body>\n\
          <main>\n<h1>Wellbeing</h1>\n\
-         <p class=\"lead\">Each person, then the device that checked them. \
+         <p class="lead">A quick look at the status as seen from each device.</p>\n
          Delay is the round trip. Rate is the sample that came back. \
          Times use this browser’s time zone.</p>\n",
     );
