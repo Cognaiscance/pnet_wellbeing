@@ -15,6 +15,7 @@ Each check records three things:
 
 - status: `online` when the other client answers, otherwise `not online`
 - delay: the ping's round trip, in milliseconds
+- path: `server`, `lan`, `punch`, or `session`, from the node's send reply. `unknown` when the node did not say
 - rate: bytes per second from an eight-chunk sample (8 × 512 bytes) that the other client acknowledges
 
 The client repeats the checks every 60 seconds (`WELLBEING_INTERVAL_SECS`, minimum 5). A client that is still waiting for approval does not send reports. Reports are accepted only from an approved `wellbeing-client` on this user's own devices. A friend's client reports to that friend's server.

@@ -102,16 +102,18 @@ fn run_round(
             delay_ms: sample.delay_ms,
             bytes_per_sec: sample.bytes_per_sec,
             at_ms: unix_ms(),
+            path: sample.path.clone(),
         });
         let sent = if server.device == dir.local_device {
             deliver_local(&dir.local_app_id, server.push_port, &payload)
         } else {
             node.send(token, &server.device, &server.app, &payload)
+                .map(|_| ())
                 .map_err(|err| err.to_string())
         };
         match sent {
             Ok(()) => log::info!(
-                "[wellbeing-client] {} {}: delay {} ms, {} B/s",
+                "[wellbeing-client] {} {}: delay {} ms via {}, {} B/s",
                 target.device_alias,
                 if sample.online {
                     "online"
@@ -119,6 +121,7 @@ fn run_round(
                     "not online"
                 },
                 sample.delay_ms,
+                sample.path,
                 sample.bytes_per_sec
             ),
             Err(err) => log::error!("[wellbeing-client] report to server: {err}"),
@@ -131,6 +134,7 @@ struct Sample {
     online: bool,
     delay_ms: u32,
     bytes_per_sec: u32,
+    path: String,
 }
 
 fn measure(
@@ -144,14 +148,18 @@ fn measure(
 ) -> Sample {
     let ping_id = next_id(seq);
     let ping = proto::encode(&Message::Ping { id: ping_id });
-    if let Err(err) = node.send(token, &target.device, &target.app, &ping) {
-        log::error!("[wellbeing-client] ping {}: {err}", target.device_alias);
-        return Sample {
-            online: false,
-            delay_ms: 0,
-            bytes_per_sec: 0,
-        };
-    }
+    let path = match node.send(token, &target.device, &target.app, &ping) {
+        Ok(path) => path.to_string(),
+        Err(err) => {
+            log::error!("[wellbeing-client] ping {}: {err}", target.device_alias);
+            return Sample {
+                online: false,
+                delay_ms: 0,
+                bytes_per_sec: 0,
+                path: "unknown".into(),
+            };
+        }
+    };
     let started = Instant::now();
     let pong = wait_until(
         node,
@@ -167,6 +175,7 @@ fn measure(
             online: false,
             delay_ms: 0,
             bytes_per_sec: 0,
+            path,
         };
     }
     let delay_ms = proto::delay_ms(started.elapsed());
@@ -185,6 +194,7 @@ fn measure(
                 online: true,
                 delay_ms,
                 bytes_per_sec: 0,
+                path,
             };
         }
     }
@@ -207,6 +217,7 @@ fn measure(
         online: true,
         delay_ms,
         bytes_per_sec,
+        path,
     }
 }
 

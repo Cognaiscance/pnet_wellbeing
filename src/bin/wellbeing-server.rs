@@ -164,6 +164,7 @@ fn accept_report(
         delay_ms,
         bytes_per_sec,
         at_ms,
+        path,
     } = proto::decode(payload).map_err(|err| err.to_string())?
     else {
         return Ok(());
@@ -192,6 +193,7 @@ fn accept_report(
         delay_ms,
         bytes_per_sec,
         at_ms,
+        path,
     };
     store
         .lock()

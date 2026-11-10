@@ -23,7 +23,7 @@ pub fn render(rows: &[Report], owner_alias: &str) -> String {
     body.push_str(
         "</style></head><body>\n\
          <main>\n<h1>Wellbeing</h1>\n\
-         <p class="lead">A quick look at the status as seen from each device.</p>\n
+         <p class=\"lead\">A quick look at the status as seen from each device.</p>\n\
          Delay is the round trip. Rate is the sample that came back. \
          Times use this browser’s time zone.</p>\n",
     );
@@ -49,7 +49,7 @@ pub fn render(rows: &[Report], owner_alias: &str) -> String {
                 body.push_str(&esc(&label(&first.from_alias, &from_id)));
                 body.push_str(
                     "</h3><table><thead><tr><th>To</th><th>Status</th>\
-                     <th>Delay</th><th>Rate</th><th>When</th></tr></thead><tbody>\n",
+                     <th>Delay</th><th>Path</th><th>Rate</th><th>When</th></tr></thead><tbody>\n",
                 );
                 for row in rows
                     .iter()
@@ -61,10 +61,11 @@ pub fn render(rows: &[Report], owner_alias: &str) -> String {
                         "<span class=\"off\">not online</span>"
                     };
                     body.push_str(&format!(
-                        "<tr><td>{}</td><td>{}</td><td>{} ms</td><td>{}</td><td><time data-ms=\"{}\">{}</time></td></tr>\n",
+                        "<tr><td>{}</td><td>{}</td><td>{} ms</td><td>{}</td><td>{}</td><td><time data-ms=\"{}\">{}</time></td></tr>\n",
                         esc(&label(&row.to_alias, &row.to_id)),
                         status,
                         row.delay_ms,
+                        esc(&row.path),
                         rate_label(row.bytes_per_sec),
                         row.at_ms,
                         esc(&format_time(row.at_ms)),
@@ -259,6 +260,7 @@ mod tests {
             delay_ms: 18,
             bytes_per_sec: 4096,
             at_ms: 1_700_000_000_000,
+            path: "lan".into(),
         }];
         let html = render(&rows, "william");
         assert!(html.contains("<h3>laptop</h3>"));
@@ -267,6 +269,7 @@ mod tests {
         assert!(html.contains("<h2>chad</h2>"));
         assert!(html.contains("online"));
         assert!(html.contains("18 ms"));
+        assert!(html.contains(">lan<"));
         assert!(html.contains("data-ms=\"1700000000000\""));
         assert!(html.contains("time[data-ms]"));
         assert!(html.contains("timeZoneName"));
@@ -291,6 +294,7 @@ mod tests {
                 delay_ms: 7,
                 bytes_per_sec: 1000,
                 at_ms: 1_700_000_000_000,
+                path: "server".into(),
             },
             Report {
                 from_id: [3; 16],
@@ -302,6 +306,7 @@ mod tests {
                 delay_ms: 0,
                 bytes_per_sec: 0,
                 at_ms: 1_700_000_000_000,
+                path: "unknown".into(),
             },
         ];
         let html = render(&rows, "william");
@@ -325,6 +330,7 @@ mod tests {
                 delay_ms: 40,
                 bytes_per_sec: 800,
                 at_ms: 1_700_000_000_000,
+                path: "punch".into(),
             },
             Report {
                 from_id: [1; 16],
@@ -336,6 +342,7 @@ mod tests {
                 delay_ms: 7,
                 bytes_per_sec: 1000,
                 at_ms: 1_700_000_000_000,
+                path: "server".into(),
             },
         ];
         let html = render(&rows, "william");

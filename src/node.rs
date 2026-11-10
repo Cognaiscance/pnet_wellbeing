@@ -143,14 +143,15 @@ impl NodeClient {
         self.round_trip(&buf)
     }
 
-    /// Success from the node is silent. A timeout means it accepted the send.
+    /// Success is `[0x00][path]`. `path` is server, lan, punch, or session.
+    /// A timeout means an older node accepted the send and did not name a path.
     pub fn send(
         &self,
         token: &[u8; 16],
         dest_device: &[u8; 16],
         dest_app: &[u8; 16],
         payload: &[u8],
-    ) -> Result<(), NodeError> {
+    ) -> Result<&'static str, NodeError> {
         let mut buf = Vec::with_capacity(1 + 48 + payload.len());
         buf.push(OP_SEND);
         buf.extend_from_slice(token);
@@ -164,12 +165,13 @@ impl NodeClient {
             Ok(n) if reply[0] == 0x01 => Err(NodeError::Rejected {
                 code: reply.get(1).filter(|_| n >= 2).copied(),
             }),
+            Ok(n) if reply[0] == 0x00 => Ok(path_name(reply.get(1).filter(|_| n >= 2).copied())),
             Ok(_) => Err(NodeError::Unexpected),
             Err(err)
                 if err.kind() == io::ErrorKind::WouldBlock
                     || err.kind() == io::ErrorKind::TimedOut =>
             {
-                Ok(())
+                Ok("unknown")
             }
             Err(err) => Err(NodeError::Io(err)),
         }
@@ -188,6 +190,26 @@ impl NodeClient {
             }
             Err(err) => Err(NodeError::Io(err)),
         }
+    }
+}
+
+pub fn path_name(byte: Option<u8>) -> &'static str {
+    match byte {
+        Some(1) => "lan",
+        Some(2) => "punch",
+        Some(3) => "session",
+        Some(0) => "server",
+        _ => "unknown",
+    }
+}
+
+pub fn path_byte(name: &str) -> Option<u8> {
+    match name {
+        "server" => Some(0),
+        "lan" => Some(1),
+        "punch" => Some(2),
+        "session" => Some(3),
+        _ => None,
     }
 }
 

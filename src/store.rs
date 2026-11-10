@@ -15,6 +15,8 @@ pub struct Report {
     pub delay_ms: u32,
     pub bytes_per_sec: u32,
     pub at_ms: u64,
+    /// `server`, `lan`, `punch`, `session`, or `unknown`.
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,7 +69,7 @@ impl Store {
         let mut body = String::new();
         for row in &self.rows {
             body.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 hex(&row.from_id),
                 escape(&row.from_alias),
                 hex(&row.to_id),
@@ -77,6 +79,7 @@ impl Store {
                 row.delay_ms,
                 row.bytes_per_sec,
                 row.at_ms,
+                escape(&row.path),
             ));
         }
         let tmp = self.path.with_extension("tmp");
@@ -141,7 +144,7 @@ fn hex_val(byte: u8) -> Option<u8> {
 
 fn parse_line(line: &str) -> Option<Report> {
     let parts: Vec<&str> = line.split('\t').collect();
-    if parts.len() != 9 {
+    if parts.len() != 9 && parts.len() != 10 {
         return None;
     }
     Some(Report {
@@ -154,6 +157,7 @@ fn parse_line(line: &str) -> Option<Report> {
         delay_ms: parts[6].parse().ok()?,
         bytes_per_sec: parts[7].parse().ok()?,
         at_ms: parts[8].parse().ok()?,
+        path: parts.get(9).map(|text| unescape(text)).unwrap_or_else(|| "unknown".into()),
     })
 }
 
@@ -184,6 +188,7 @@ mod tests {
             delay_ms: 0,
             bytes_per_sec: 0,
             at_ms: 10,
+            path: "server".into(),
         };
         store.upsert(report.clone()).unwrap();
         report.online = true;

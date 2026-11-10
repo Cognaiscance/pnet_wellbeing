@@ -39,6 +39,8 @@ pub enum Message {
         delay_ms: u32,
         bytes_per_sec: u32,
         at_ms: u64,
+        /// `server`, `lan`, `punch`, `session`, or `unknown` when the node did not say.
+        path: String,
     },
 }
 
@@ -88,6 +90,7 @@ pub fn encode(message: &Message) -> Vec<u8> {
             delay_ms,
             bytes_per_sec,
             at_ms,
+            path,
         } => {
             buf.push(REPORT);
             buf.extend_from_slice(target);
@@ -95,6 +98,9 @@ pub fn encode(message: &Message) -> Vec<u8> {
             buf.extend_from_slice(&delay_ms.to_be_bytes());
             buf.extend_from_slice(&bytes_per_sec.to_be_bytes());
             buf.extend_from_slice(&at_ms.to_be_bytes());
+            if let Some(byte) = crate::node::path_byte(path) {
+                buf.push(byte);
+            }
         }
     }
     buf
@@ -146,6 +152,7 @@ pub fn decode(bytes: &[u8]) -> Result<Message, ProtoError> {
                 delay_ms: u32::from_be_bytes(rest[17..21].try_into().unwrap()),
                 bytes_per_sec: u32::from_be_bytes(rest[21..25].try_into().unwrap()),
                 at_ms: u64::from_be_bytes(rest[25..33].try_into().unwrap()),
+                path: crate::node::path_name(rest.get(33).copied()).to_string(),
             })
         }
         _ => Err(ProtoError::Type),
@@ -185,6 +192,7 @@ mod tests {
             delay_ms: 42,
             bytes_per_sec: 80_000,
             at_ms: 1_700_000_000_000,
+            path: "lan".into(),
         };
         assert_eq!(decode(&encode(&report)).unwrap(), report);
         let xfer = Message::Xfer {
